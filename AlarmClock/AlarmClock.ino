@@ -13,6 +13,11 @@ const char *password = "<PASSWORD>";
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP);
 
+// For Webserver
+#include <WiFiClient.h>
+#include <ESP8266WebServer.h>
+#include <ESP8266mDNS.h>
+
 // Module connection pins (Digital Pins)
 #define CLK D6
 #define DIO D5
@@ -37,6 +42,36 @@ const uint8_t SEG_BOOT[] = {
   SEG_D | SEG_E | SEG_F | SEG_G                    // t - kinda
   };
 
+ESP8266WebServer server(80);
+
+const char *webpage = 
+#include "alarmWeb.h"
+;
+
+void handleRoot() {
+
+  server.send(200, "text/html", webpage);
+}
+
+void handleNotFound(){
+  String message = "File Not Found\n\n";
+  message += "URI: ";
+  message += server.uri();
+  message += "\nMethod: ";
+  message += (server.method() == HTTP_GET)?"GET":"POST";
+  message += "\nArguments: ";
+  message += server.args();
+  message += "\n";
+  for (uint8_t i=0; i<server.args(); i++){
+    message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
+  }
+  server.send(404, "text/plain", message);
+}
+
+int alarmHour = 0;
+int alarmMinute = 0;
+bool alarmHandled = false;
+
 void setup() {
   Serial.begin(115200);
   display.setBrightness(0xff);
@@ -52,10 +87,46 @@ void setup() {
     Serial.print ( "." );
   }
 
+    Serial.println("");
+  Serial.print("Connected to ");
+  Serial.println(ssid);
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  if (MDNS.begin("alarm")) {
+    Serial.println("MDNS Responder Started");
+  }
+
+  server.on("/", handleRoot);
+  server.on("/setAlarm", handleSetAlarm);
+
+  
+
   timeClient.begin();
 
-  soundAlarm();
+  server.onNotFound(handleNotFound);
 
+  server.begin();
+  Serial.println("HTTP Server Started");
+
+}
+
+void handleSetAlarm() {
+
+  Serial.println("Setting Alarm");
+  for (uint8_t i=0; i<server.args(); i++){
+    if(server.argName(i) == "alarm") {
+      String alarm = server.arg(i);
+      int indexOfColon = alarm.indexOf(":");
+      alarmHour = alarm.substring(0, indexOfColon).toInt();
+      alarmMinute = alarm.substring(indexOfColon + 1).toInt();
+      Serial.print("Setting Alarm to: ");
+      Serial.print(alarmHour);
+      Serial.print(":");
+      Serial.print(alarmMinute);
+    }
+  }
+  server.send(200, "text/html", "Set Alarm");
 }
 
 void soundAlarm(){
@@ -66,18 +137,41 @@ void soundAlarm(){
 
 bool dotsOn = false;
 
-void loop() {
-  delay(1000);
-  timeClient.update();
-  displayTime(dotsOn);
-  dotsOn = !dotsOn;
+unsigned long oneSecondLoopDue = 0;
 
+void loop() {
+  unsigned long now = millis();
+  if(now > oneSecondLoopDue){
+    timeClient.update();
+    displayTime(dotsOn);
+    dotsOn = !dotsOn;
+    checkForAlarm();
+    oneSecondLoopDue = now + 1000;
+  }
+  
+  server.handleClient();
+}
+
+int hour;
+int minutes;
+
+bool checkForAlarm()
+{
+  if(hour == alarmHour && minutes == alarmMinute){
+    if(!alarmHandled)
+    {
+      soundAlarm();
+      alarmHandled = true;
+    }
+  } else {
+    alarmHandled = false;
+  }
 }
 
 void displayTime(bool dotsVisible) {
   unsigned long epoch = timeClient.getEpochTime();
-  int hour = (epoch  % 86400L) / 3600;
-  int minutes = (epoch % 3600) / 60;
+  hour = (epoch  % 86400L) / 3600;
+  minutes = (epoch % 3600) / 60;
 
   uint8_t data[4];
 
