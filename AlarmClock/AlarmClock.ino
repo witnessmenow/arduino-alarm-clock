@@ -18,11 +18,21 @@ NTPClient timeClient(ntpUDP);
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
 
+#include <ArduinoJson.h>
+// Available on the library manager (ArduinoJson)
+// https://github.com/bblanchon/ArduinoJson
+
+
+// For storing configurations
+#include "FS.h"
+
 // Module connection pins (Digital Pins)
 #define CLK D6
 #define DIO D5
 
 #define ALARM D1
+
+#define BUTTON D2
 
 TM1637Display display(CLK, DIO);
 
@@ -70,17 +80,31 @@ void handleNotFound(){
 
 int alarmHour = 0;
 int alarmMinute = 0;
+bool alarmActive = false;
 bool alarmHandled = false;
+bool buttonPressed = false;
 
 void setup() {
   Serial.begin(115200);
+
+  if (!SPIFFS.begin()) {
+    Serial.println("Failed to mount FS");
+    return;
+  }
+
+  loadConfig();
+  
   display.setBrightness(0xff);
   display.setSegments(SEG_BOOT);
 
   pinMode(ALARM, OUTPUT);
   digitalWrite(ALARM, LOW);
 
-  // WiFi.begin(ssid, password);
+  pinMode(BUTTON, INPUT_PULLUP);
+
+  attachInterrupt(BUTTON, interuptButton, RISING);
+
+  WiFi.begin(ssid, password);
 
   while ( WiFi.status() != WL_CONNECTED ) {
     delay ( 500 );
@@ -111,6 +135,55 @@ void setup() {
 
 }
 
+bool loadConfig() {
+  File configFile = SPIFFS.open("/alarm.json", "r");
+  if (!configFile) {
+    Serial.println("Failed to open config file");
+    return false;
+  }
+
+  size_t size = configFile.size();
+  if (size > 1024) {
+    Serial.println("Config file size is too large");
+    return false;
+  }
+
+  // Allocate a buffer to store contents of the file.
+  std::unique_ptr<char[]> buf(new char[size]);
+
+  configFile.readBytes(buf.get(), size);
+
+  StaticJsonBuffer<200> jsonBuffer;
+  JsonObject& json = jsonBuffer.parseObject(buf.get());
+
+  if (!json.success()) {
+    Serial.println("Failed to parse config file");
+    return false;
+  }
+
+  alarmHour = json["alarmHour"];
+  alarmMinute = json["alarmMinute"];
+  alarmActive = json["alarmActive"];
+  return true;
+}
+
+bool saveConfig() {
+  StaticJsonBuffer<200> jsonBuffer;
+  JsonObject& json = jsonBuffer.createObject();
+  json["alarmHour"] = alarmHour;
+  json["alarmMinute"] = alarmMinute;
+  json["alarmActive"] = alarmActive;
+
+  File configFile = SPIFFS.open("/alarm.json", "w");
+  if (!configFile) {
+    Serial.println("Failed to open config file for writing");
+    return false;
+  }
+
+  json.printTo(configFile);
+  return true;
+}
+
 void handleSetAlarm() {
 
   Serial.println("Setting Alarm");
@@ -120,6 +193,8 @@ void handleSetAlarm() {
       int indexOfColon = alarm.indexOf(":");
       alarmHour = alarm.substring(0, indexOfColon).toInt();
       alarmMinute = alarm.substring(indexOfColon + 1).toInt();
+      alarmActive = true;
+      saveConfig();
       Serial.print("Setting Alarm to: ");
       Serial.print(alarmHour);
       Serial.print(":");
@@ -146,6 +221,10 @@ void loop() {
     displayTime(dotsOn);
     dotsOn = !dotsOn;
     checkForAlarm();
+    if(buttonPressed){
+      alarmHandled = true;
+      buttonPressed = false;
+    }
     oneSecondLoopDue = now + 1000;
   }
   
@@ -157,15 +236,21 @@ int minutes;
 
 bool checkForAlarm()
 {
-  if(hour == alarmHour && minutes == alarmMinute){
+  if(alarmActive && hour == alarmHour && minutes == alarmMinute){
     if(!alarmHandled)
     {
       soundAlarm();
-      alarmHandled = true;
     }
   } else {
     alarmHandled = false;
   }
+}
+
+void interuptButton()
+{
+  // Serial.println("interuptButton");
+  buttonPressed = true;
+  return;
 }
 
 void displayTime(bool dotsVisible) {
