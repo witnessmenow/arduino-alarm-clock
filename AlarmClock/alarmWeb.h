@@ -29,6 +29,10 @@ R"(
                   makeAjaxCall("setAlarm?alarm=" + alarmTime);
                 }
              }
+
+             function getAlarm(){
+              
+             }
     </script>
   </body>
 </html>

@@ -1,1 +1,1 @@
-#define MAPS_API_KEY 12345678hgvbghujnmkl
+#define MAPS_API_KEY "12345678hgvbghujnmkl"

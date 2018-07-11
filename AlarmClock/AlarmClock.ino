@@ -34,6 +34,8 @@ NTPClient timeClient(ntpUDP);
 
 #include <WiFiClientSecure.h>
 
+#include "pitches.h"
+
 bool enableTrafficAdjust = false;
 
 //Free Google Maps Api only allows for 2500 "elements" a day, so carful you dont go over
@@ -58,6 +60,7 @@ DirectionsInputOptions inputOptions;
 #define ALARM D1
 
 #define BUTTON D2
+#define SNOOZE_BUTTON D3
 
 TM1637Display display(CLK, DIO);
 
@@ -75,7 +78,7 @@ const uint8_t SEG_CONF[] = {
   LETTER_O,                                        // o
   SEG_C | SEG_E | SEG_G,                           // n
   LETTER_F                                         // F
-  };
+};
 
 const uint8_t SEG_BOOT[] = {
   LETTER_B,                                        // b
@@ -117,6 +120,11 @@ int alarmMinute = 0;
 bool alarmActive = false;
 bool alarmHandled = false;
 bool buttonPressed = false;
+
+void handleGetAlarm() {
+  String alarmString = String(alarmHour) + ":" + String(alarmMinute);
+  server.send(200, "text/plain", alarmString);
+}
 
 int trafficOffset = 0;
 
@@ -162,6 +170,7 @@ void setup() {
   digitalWrite(ALARM, LOW);
 
   pinMode(BUTTON, INPUT_PULLUP);
+  pinMode(SNOOZE_BUTTON, INPUT_PULLUP);
 
   attachInterrupt(BUTTON, interuptButton, RISING);
 
@@ -189,6 +198,8 @@ void setup() {
 
   server.on("/", handleRoot);
   server.on("/setAlarm", handleSetAlarm);
+  server.on("/getAlarm", handleGetAlarm);
+  
 
 
 
@@ -276,10 +287,31 @@ void handleSetAlarm() {
   server.send(200, "text/html", "Set Alarm");
 }
 
+// notes in the melody:
+int melody[] = {
+  NOTE_C4, NOTE_G3, NOTE_G3, NOTE_A3, NOTE_G3, 0, NOTE_B3, NOTE_C4
+};
+
+// note durations: 4 = quarter note, 8 = eighth note, etc.:
+int noteDurations[] = {
+  4, 8, 8, 4, 4, 4, 4, 4
+};
+
 void soundAlarm() {
-  digitalWrite(ALARM, HIGH);
-  delay(1000);
-  digitalWrite(ALARM, LOW);
+  for (int thisNote = 0; thisNote < 8; thisNote++) {
+
+    // to calculate the note duration, take one second divided by the note type.
+    //e.g. quarter note = 1000 / 4, eighth note = 1000/8, etc.
+    int noteDuration = 1000 / noteDurations[thisNote];
+    tone(ALARM, melody[thisNote], noteDuration);
+
+    // to distinguish the notes, set a minimum time between them.
+    // the note's duration + 30% seems to work well:
+    int pauseBetweenNotes = noteDuration * 1.30;
+    delay(pauseBetweenNotes);
+    // stop the tone playing:
+    noTone(ALARM);
+  }
 }
 
 bool dotsOn = false;
@@ -322,17 +354,25 @@ void checkGoogleMaps() {
 
 void loop() {
   unsigned long now = millis();
-  if (now > oneSecondLoopDue) {
-    timeClient.update();
-    displayTime(dotsOn);
-    dotsOn = !dotsOn;
-    checkForAlarm();
-    if (buttonPressed) {
-      alarmHandled = true;
-      buttonPressed = false;
+
+  if ( digitalRead(SNOOZE_BUTTON) == LOW) {
+    IPAddress ipAddress = WiFi.localIP();
+    display.showNumberDec(ipAddress[3], false);
+    oneSecondLoopDue = now;
+  } else {
+    if (now > oneSecondLoopDue) {
+      timeClient.update();
+      displayTime(dotsOn);
+      dotsOn = !dotsOn;
+      checkForAlarm();
+      if (buttonPressed) {
+        alarmHandled = true;
+        buttonPressed = false;
+      }
+      oneSecondLoopDue = now + 1000;
     }
-    oneSecondLoopDue = now + 1000;
   }
+
 
   if (enableTrafficAdjust)
   {
