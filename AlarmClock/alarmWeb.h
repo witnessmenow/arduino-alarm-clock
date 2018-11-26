@@ -16,10 +16,14 @@ R"(
           <div class="col-xs-4" style="height: 100%; text-align: center">
             <button id="sendAlarm" type="button" class="btn btn-default" style="height: 100%; width: 100%" onclick='saveAlarm()'>Send Alarm</button>
           </div>
+        </div>
+        <div class="row" padding-bottom:1em">
+          <div class="col-xs-4" id="currentAlarm" style="font-size: 30px"></div>
+        </div>
       </div>
     </div>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
-    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script> 
     <script> function makeAjaxCall(url){$.ajax({"url": url})}</script>
     <script> function saveAlarm()
              {
@@ -30,8 +34,17 @@ R"(
                 }
              }
 
+             window.setInterval(getAlarm, 2000);
+
+
+             function displayAlarm(data){
+              var text = "Alarm currently set to: " + data;
+               $("#currentAlarm").html(data);
+             }
+
              function getAlarm(){
-              
+                $.ajax({"url": "getAlarm",
+                "success": displayAlarm});
              }
     </script>
   </body>

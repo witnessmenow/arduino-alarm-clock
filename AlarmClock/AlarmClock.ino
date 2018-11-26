@@ -9,8 +9,8 @@
 
 #include "secret.h"
 
-const char *ssid     = "<SSID>";
-const char *password = "<PASSWORD>";
+const char *ssid     = SSIDWIFI;
+const char *password = WIFIPASS;
 
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP);
@@ -61,6 +61,8 @@ DirectionsInputOptions inputOptions;
 
 #define BUTTON D2
 #define SNOOZE_BUTTON D3
+
+#define LDR A0
 
 TM1637Display display(CLK, DIO);
 
@@ -355,7 +357,11 @@ void checkGoogleMaps() {
 void loop() {
   unsigned long now = millis();
 
-  if ( digitalRead(SNOOZE_BUTTON) == LOW) {
+  if(digitalRead(SNOOZE_BUTTON) == LOW && digitalRead(BUTTON) == LOW){
+    int sensorValue = analogRead(LDR);
+    display.showNumberDec(sensorValue, false);
+    oneSecondLoopDue = now;
+  } else if ( digitalRead(SNOOZE_BUTTON) == LOW) {
     IPAddress ipAddress = WiFi.localIP();
     display.showNumberDec(ipAddress[3], false);
     oneSecondLoopDue = now;
