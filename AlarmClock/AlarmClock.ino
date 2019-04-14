@@ -1,99 +1,103 @@
-#include <NTPClient.h>
-// change next line to use with another board/shield
-#include <ESP8266WiFi.h>
-//#include <WiFi.h> // for WiFi shield
-//#include <WiFi101.h> // for WiFi 101 shield or MKR1000
-#include <WiFiUdp.h>
+/*******************************************************************
+    BLough Alarm Clock
+    An Alarm clock that gets it's time from the interent
 
-#include <TM1637Display.h>
+    Features:
+    - Web interface for setting the alarm
+    - Captive portal for setting WiFi Details
+    - Automatically adjust for DST
 
-#include "secret.h"
+    By Brian Lough
 
-const char *ssid     = SSIDWIFI;
-const char *password = WIFIPASS;
+    For use with: https://www.tindie.com/products/15402/
+    
+    YouTube: https://www.youtube.com/brianlough
+    Tindie: https://www.twitch.tv/brianlough
+    Twitter: https://twitter.com/witnessmenow
+ *******************************************************************/
 
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP);
+//Included with ESP8266 Arduino Core
 
-#include <Timezone.h>    // https://github.com/JChristensen/Timezone Modified!
-
-// For Webserver
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
-
-// For WifiManager
 #include <DNSServer.h>
-#include <WiFiManager.h>         //https://github.com/tzapu/WiFiManager
-
-#include <ArduinoJson.h>
-// Available on the library manager (ArduinoJson)
-// https://github.com/bblanchon/ArduinoJson
-
-#include <GoogleMapsDirectionsApi.h>
-
-#include <WiFiClientSecure.h>
-
-#include "pitches.h"
-
-bool enableTrafficAdjust = false;
-
-//Free Google Maps Api only allows for 2500 "elements" a day, so carful you dont go over
-unsigned long api_mtbs = 60000; //mean time between api requests
-unsigned long api_due_time = 0;
-bool firstTime = true;
-
-String origin = "40.8359838,-73.8734402";
-String destination = "40.8536064,-73.9667197";
-String waypoints = ""; //You need to include the via: before your waypoint
-
-//Optional
-DirectionsInputOptions inputOptions;
-
-// For storing configurations
 #include "FS.h"
 
-// Module connection pins (Digital Pins)
-#define CLK D6
-#define DIO D5
+#include <ezTime.h>
+// Library used for getting the time and adjusting for DST
+// Search for "ezTime" in the Arduino Library manager
+// https://github.com/ropg/ezTime
 
-#define ALARM D1
+#include <TM1637Display.h>
+// Library used for controlling the 7 Segment display
+// Search for "TM1637" in the Arduino Library manager
+// https://github.com/avishorp/TM1637
 
-#define BUTTON D2
-#define SNOOZE_BUTTON D3
+#include <ArduinoJson.h>
+// Library used for parsing & saving Json to config
+// NOTE: There is a breaking change in the 6.x.x version,
+// install the 5.x.x version instead
+// Search for "Arduino Json" in the Arduino Library manager
+// https://github.com/bblanchon/ArduinoJson
 
-#define LDR A0
+#include <WiFiManager.h>
+// Library used for creating the captive portal for entering WiFi Details
+// Search for "Wifimanager" in the Arduino Library manager
+// https://github.com/tzapu/WiFiManager
 
-TM1637Display display(CLK, DIO);
+#include "secret.h"
+#include "pitches.h"
+#include "displayConf.h"
 
-const uint8_t LETTER_A = SEG_A | SEG_B | SEG_C | SEG_E | SEG_F | SEG_G;
-const uint8_t LETTER_B = SEG_C | SEG_D | SEG_E | SEG_F | SEG_G;
-const uint8_t LETTER_C = SEG_A | SEG_D | SEG_E | SEG_F;
-const uint8_t LETTER_D = SEG_B | SEG_C | SEG_D | SEG_E | SEG_G;
-const uint8_t LETTER_E = SEG_A | SEG_D | SEG_E | SEG_F | SEG_G;
-const uint8_t LETTER_F = SEG_A | SEG_E | SEG_F | SEG_G;
-
-const uint8_t LETTER_O = SEG_C | SEG_D | SEG_E | SEG_G;
-
-const uint8_t SEG_CONF[] = {
-  LETTER_C,                                        // C
-  LETTER_O,                                        // o
-  SEG_C | SEG_E | SEG_G,                           // n
-  LETTER_F                                         // F
-};
-
-const uint8_t SEG_BOOT[] = {
-  LETTER_B,                                        // b
-  LETTER_O,                                        // o
-  LETTER_O,                                        // o
-  SEG_D | SEG_E | SEG_F | SEG_G                    // t - kinda
-};
-
-ESP8266WebServer server(80);
+bool firstTime = true;
 
 const char *webpage =
 #include "alarmWeb.h"
   ;
+
+// --- TimeZone (Change me!) ---
+
+// You should be able to use the country code for
+// countries that only span one timezone, but I'm having
+// issues with it:
+// https://github.com/ropg/ezTime/issues/47
+//#define MYTIMEZONE "ie"
+
+// Or to set a specific timezone, use this list:
+// https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+#define MYTIMEZONE "Europe/Dublin"
+
+// -----------------------------
+
+
+// --- Pin Configuration ---
+
+//Display Pins
+#define CLK D6
+#define DIO D5
+
+// Buzzer Pin
+#define ALARM D1
+
+// Buttons Pins
+#define BUTTON D2
+#define SNOOZE_BUTTON D3
+
+// LDR Pin
+#define LDR A0
+
+// ------------------------
+
+TM1637Display display(CLK, DIO);
+
+ESP8266WebServer server(80);
+
+boolean dotsOn;
+
+unsigned long oneSecondLoopDue = 0;
+
+Timezone myTZ;
 
 void handleRoot() {
 
@@ -115,8 +119,6 @@ void handleNotFound() {
   server.send(404, "text/plain", message);
 }
 
-//MAPS_API_KEY
-
 int alarmHour = 0;
 int alarmMinute = 0;
 bool alarmActive = false;
@@ -127,26 +129,6 @@ void handleGetAlarm() {
   String alarmString = String(alarmHour) + ":" + String(alarmMinute);
   server.send(200, "text/plain", alarmString);
 }
-
-int trafficOffset = 0;
-
-WiFiClientSecure client;
-GoogleMapsDirectionsApi api(MAPS_API_KEY, client);
-
-// From World clock example in timezone library
-// United Kingdom (London, Belfast)
-TimeChangeRule BST = {"BST", Last, Sun, Mar, 1, 60};        // British Summer Time
-TimeChangeRule GMT = {"GMT", Last, Sun, Oct, 2, 0};         // Standard Time
-Timezone UK(BST, GMT);
-
-TimeChangeRule aEDT = {"AEDT", First, Sun, Oct, 2, 660};    // UTC + 11 hours
-TimeChangeRule aEST = {"AEST", First, Sun, Apr, 3, 600};    // UTC + 10 hours
-Timezone ausET(aEDT, aEST);
-
-// US Eastern Time Zone (New York, Detroit)
-TimeChangeRule usEDT = {"EDT", Second, Sun, Mar, 2, -240};  // Eastern Daylight Time = UTC - 4 hours
-TimeChangeRule usEST = {"EST", First, Sun, Nov, 2, -300};   // Eastern Standard Time = UTC - 5 hours
-Timezone usET(usEDT, usEST);
 
 void configModeCallback (WiFiManager *myWiFiManager) {
   Serial.println("Entered config mode");
@@ -181,8 +163,8 @@ void setup() {
   wifiManager.autoConnect("AlarmClock", "password");
 
   Serial.println("");
-  Serial.print("Connected to ");
-  Serial.println(ssid);
+  Serial.print("WiFi Connected");
+  Serial.println("");
   Serial.print("IP address: ");
 
   IPAddress ipAddress = WiFi.localIP();
@@ -198,25 +180,25 @@ void setup() {
     Serial.println("MDNS Responder Started");
   }
 
+  // HTTP Server
+
   server.on("/", handleRoot);
   server.on("/setAlarm", handleSetAlarm);
   server.on("/getAlarm", handleGetAlarm);
-  
-
-
-
-  timeClient.begin();
-
   server.onNotFound(handleNotFound);
-
   server.begin();
   Serial.println("HTTP Server Started");
 
-  //These are all optional (although departureTime needed for traffic)
-  inputOptions.departureTime = "now"; //can also be a future timestamp
-  inputOptions.trafficModel = "best_guess"; //Defaults to this anyways
-  inputOptions.avoid = "ferries";
-  inputOptions.units = "metric";
+  // EZ Time
+  setDebug(INFO);
+  waitForSync();
+
+  Serial.println();
+  Serial.println("UTC:             " + UTC.dateTime());
+
+  myTZ.setLocation(F(MYTIMEZONE));
+  Serial.print(F("Time in your set timezone:         "));
+  Serial.println(myTZ.dateTime());
 
 }
 
@@ -316,44 +298,6 @@ void soundAlarm() {
   }
 }
 
-bool dotsOn = false;
-
-unsigned long oneSecondLoopDue = 0;
-
-void checkGoogleMaps() {
-  Serial.println("Getting traffic for " + origin + " to " + destination);
-  DirectionsResponse response = api.directionsApi(origin, destination, inputOptions);
-  if (response.duration_value == 0) {
-    delay(100);
-    response = api.directionsApi(origin, destination, inputOptions);
-  }
-  Serial.println("Response:");
-  Serial.print("Trafic from ");
-  Serial.print(response.start_address);
-  Serial.print(" to ");
-  Serial.println(response.end_address);
-
-  Serial.print("Duration in Traffic text: ");
-  Serial.println(response.durationTraffic_text);
-  Serial.print("Duration in Traffic in Seconds: ");
-  Serial.println(response.durationTraffic_value);
-
-  Serial.print("Normal duration text: ");
-  Serial.println(response.duration_text);
-  Serial.print("Normal duration in Seconds: ");
-  Serial.println(response.duration_value);
-
-  Serial.print("Distance text: ");
-  Serial.println(response.distance_text);
-  Serial.print("Distance in meters: ");
-  Serial.println(response.distance_value);
-
-  trafficOffset = (response.durationTraffic_value - response.duration_value) / 60 ;
-
-  Serial.print("Traffic Offset: ");
-  Serial.println(trafficOffset);
-}
-
 void loop() {
   unsigned long now = millis();
 
@@ -367,7 +311,6 @@ void loop() {
     oneSecondLoopDue = now;
   } else {
     if (now > oneSecondLoopDue) {
-      timeClient.update();
       displayTime(dotsOn);
       dotsOn = !dotsOn;
       checkForAlarm();
@@ -379,16 +322,6 @@ void loop() {
     }
   }
 
-
-  if (enableTrafficAdjust)
-  {
-    if ((now > api_due_time))  {
-      inputOptions.waypoints = waypoints;
-      checkGoogleMaps();
-      api_due_time = now + api_mtbs;
-    }
-  }
-
   server.handleClient();
 }
 
@@ -396,46 +329,6 @@ int timeHour;
 int timeMinutes;
 
 int lastEffectiveAlarm = 0;
-
-//bool checkForAlarm()
-//{
-//  int effectiveAlarmMinute = alarmMinute;
-//  int effectiveAlarmHour = alarmHour;
-//  int actualAlarmMinutesFromMidnight = (alarmHour * 60) + alarmMinute;
-//  int effectiveAlarmMinutesFromMidnight = actualAlarmMinutesFromMidnight;
-//  if (trafficOffset != 0)
-//  {
-//    effectiveAlarmMinutesFromMidnight -= trafficOffset;
-//
-//    if (effectiveAlarmHour > 1439)
-//    {
-//      effectiveAlarmMinutesFromMidnight = effectiveAlarmMinutesFromMidnight % 1440;
-//    }
-//
-//    if (effectiveAlarmHour < 0)
-//    {
-//      effectiveAlarmMinutesFromMidnight = (1440 + effectiveAlarmMinutesFromMidnight) % 1440;
-//    }
-//  }
-//
-//  int minutesSinceMidnight = (hour * 60) + minutes;
-//
-//  if (alarmActive) {
-//    if (minutesSinceMidnight >= effectiveAlarmMinutesFromMidnight) {
-//      if (minutesSinceMidnight <= actualAlarmMinutesFromMidnight + 30) {
-//        if (!alarmHandled)
-//        {
-//          soundAlarm();
-//        }
-//      }
-//    }
-//
-//  } else if (minutesSinceMidnight = 0) {
-//    alarmHandled = false;
-//  }
-//
-//  lastEffectiveAlarm = effectiveAlarmMinutesFromMidnight;
-//}
 
 bool checkForAlarm()
 {
@@ -458,33 +351,28 @@ void interuptButton()
 
 void displayTime(bool dotsVisible) {
 
-  unsigned long epoch = UK.toLocal(timeClient.getEpochTime());
+  //Requesting the time in a specific format
+  // H = hours with leading 0
+  // i = minutes with leading 0
+  // so 9:34am would come back "0934"
+  String timeString = myTZ.dateTime("Hi");
 
-  timeHour = (epoch  % 86400L) / 3600;
-  timeMinutes = (epoch % 3600) / 60;
+  timeHour = timeString.substring(0,2).toInt();
+  timeMinutes = timeString.substring(2).toInt();
 
   uint8_t data[4];
 
-  if (timeHour < 10) {
-    data[0] = display.encodeDigit(0);
-    data[1] = display.encodeDigit(timeHour);
-  } else {
-    data[0] = display.encodeDigit(timeHour / 10);
-    data[1] = display.encodeDigit(timeHour % 10);
-  }
+  data[0] = display.encodeDigit(timeString.substring(0,1).toInt());
+  data[1] = display.encodeDigit(timeString.substring(1,2).toInt());
+
 
   if (dotsVisible) {
     // Turn on double dots
     data[1] = data[1] | B10000000;
   }
 
-  if (timeMinutes < 10) {
-    data[2] = display.encodeDigit(0);
-    data[3] = display.encodeDigit(timeMinutes);
-  } else {
-    data[2] = display.encodeDigit(timeMinutes / 10);
-    data[3] = display.encodeDigit(timeMinutes % 10);
-  }
+  data[2] = display.encodeDigit(timeString.substring(2,3).toInt());
+  data[3] = display.encodeDigit(timeString.substring(3).toInt());
 
   display.setSegments(data);
 }
