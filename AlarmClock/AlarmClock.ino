@@ -97,6 +97,9 @@ boolean dotsOn;
 
 unsigned long oneSecondLoopDue = 0;
 
+int brightnessAdjustInterval = 100; //mS
+unsigned long adjustBrightnessDue = 0;
+
 Timezone myTZ;
 
 void handleRoot() {
@@ -139,16 +142,18 @@ void configModeCallback (WiFiManager *myWiFiManager) {
 
 void setup() {
   Serial.begin(115200);
-
+  display.setBrightness(7);
+  display.setSegments(SEG_BOOT);
   if (!SPIFFS.begin()) {
     Serial.println("Failed to mount FS");
-    return;
+    display.setSegments(SEG_ERR);
+    while(true){
+      // loop as we want to show there is an error
+      // as it possible couldn't load an alarm
+    }
+  } else {
+    loadConfig(); 
   }
-
-  loadConfig();
-
-  display.setBrightness(0xff);
-  display.setSegments(SEG_BOOT);
 
   pinMode(ALARM, OUTPUT);
   digitalWrite(ALARM, LOW);
@@ -298,9 +303,28 @@ void soundAlarm() {
   }
 }
 
+void adjustBrightness() {
+  int sensorValue = analogRead(LDR);
+  if (sensorValue < 300) {
+    sensorValue = 300;
+  }
+  else if (sensorValue > 900) {
+    sensorValue = 900;
+  }
+
+  int level = map(sensorValue, 300, 900, 0, 7);
+  //Serial.print("seg brightness ");
+  //Serial.println(level);
+  display.setBrightness(level);
+}
+
 void loop() {
   unsigned long now = millis();
-
+  if(now > adjustBrightnessDue){
+    adjustBrightness();
+    adjustBrightnessDue = now + brightnessAdjustInterval;
+  }
+  adjustBrightness();
   if(digitalRead(SNOOZE_BUTTON) == LOW && digitalRead(BUTTON) == LOW){
     int sensorValue = analogRead(LDR);
     display.showNumberDec(sensorValue, false);
