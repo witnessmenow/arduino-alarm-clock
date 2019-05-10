@@ -324,7 +324,7 @@ void loop() {
     adjustBrightness();
     adjustBrightnessDue = now + brightnessAdjustInterval;
   }
-  adjustBrightness();
+  
   if(digitalRead(SNOOZE_BUTTON) == LOW && digitalRead(BUTTON) == LOW){
     int sensorValue = analogRead(LDR);
     display.showNumberDec(sensorValue, false);
