@@ -270,7 +270,7 @@ void handleSetAlarm() {
       Serial.print("Setting Alarm to: ");
       Serial.print(alarmHour);
       Serial.print(":");
-      Serial.print(alarmMinute);
+      Serial.println(alarmMinute);
     }
   }
   server.send(200, "text/html", "Set Alarm");
