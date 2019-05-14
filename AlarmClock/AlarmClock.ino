@@ -146,7 +146,7 @@ void setup() {
   display.setSegments(SEG_BOOT);
   if (!SPIFFS.begin()) {
     Serial.println("Failed to mount FS");
-    display.setSegments(SEG_ERR);
+    display.setSegments(SEG_FILE);
     while(true){
       // loop as we want to show there is an error
       // as it possible couldn't load an alarm
