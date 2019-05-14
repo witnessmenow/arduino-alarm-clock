@@ -52,9 +52,7 @@
 
 bool firstTime = true;
 
-const char *webpage =
-#include "alarmWeb.h"
-  ;
+#include "alarmWeb.h";
 
 // --- TimeZone (Change me!) ---
 
@@ -86,6 +84,9 @@ const char *webpage =
 
 // LDR Pin
 #define LDR A0
+
+//On board LED
+#define LED LED_BUILTIN
 
 // ------------------------
 
@@ -121,6 +122,45 @@ void handleNotFound() {
   }
   server.send(404, "text/plain", message);
 }
+void handleADC() {
+ int a = analogRead(A0);
+ String adcValue = String(a);
+ 
+ server.send(200, "text/plane", adcValue); //Send ADC value only to client ajax request
+}
+
+void handleWiFi(){
+ int8_t rssi = getWifiQuality();
+ String rssiValue = String(rssi);
+ server.send(200, "text/plane", rssiValue);
+}
+
+void handleLED() {
+ String ledState = "OFF";
+ String t_state = server.arg("LEDstate"); //Refer  xhttp.open("GET", "setLED?LEDstate="+led, true);
+ Serial.println(t_state);
+ if(t_state == "1")
+ {
+  digitalWrite(LED,LOW); //LED ON
+  ledState = "<i class=\"fas fa-lightbulb\"></i> ON"; //Feedback parameter
+ }
+ else if(t_state == "2")
+ {
+//  digitalRead(LED); //READ LED
+  if(digitalRead(LED) == 1){
+    ledState = "<i class=\"far fa-lightbulb\"></i> OFF"; //Feedback parameter  
+  }
+  else{
+    ledState = "<i class=\"fas fa-lightbulb\"></i> ON";
+  }
+ }
+ else{
+  digitalWrite(LED,HIGH); //LED OFF
+  ledState = "<i class=\"far fa-lightbulb\"></i> OFF"; //Feedback parameter  
+ }
+ 
+ server.send(200, "text/plane", ledState); //Send web page
+}
 
 int alarmHour = 0;
 int alarmMinute = 0;
@@ -129,7 +169,8 @@ bool alarmHandled = false;
 bool buttonPressed = false;
 
 void handleGetAlarm() {
-  String alarmString = String(alarmHour) + ":" + String(alarmMinute);
+  char alarmString[5];
+  sprintf(alarmString, "%02d:%02d", alarmHour, alarmMinute);
   server.send(200, "text/plain", alarmString);
 }
 
@@ -142,6 +183,11 @@ void configModeCallback (WiFiManager *myWiFiManager) {
 
 void setup() {
   Serial.begin(115200);
+
+    //Onboard LED port Direction output
+  pinMode(LED,OUTPUT); 
+  digitalWrite(LED,HIGH); //LED OFF
+
   display.setBrightness(7);
   display.setSegments(SEG_BOOT);
   if (!SPIFFS.begin()) {
@@ -190,6 +236,9 @@ void setup() {
   server.on("/", handleRoot);
   server.on("/setAlarm", handleSetAlarm);
   server.on("/getAlarm", handleGetAlarm);
+  server.on("/setLED", handleLED);
+  server.on("/getWiFi", handleWiFi);
+  server.on("/readADC", handleADC);
   server.onNotFound(handleNotFound);
   server.begin();
   Serial.println("HTTP Server Started");
@@ -371,6 +420,18 @@ void interuptButton()
   // Serial.println("interuptButton");
   buttonPressed = true;
   return;
+}
+
+// converts the dBm to a range between 0 and 100%
+int8_t getWifiQuality() {
+  int32_t dbm = WiFi.RSSI();
+  if (dbm <= -100) {
+    return 0;
+  } else if (dbm >= -50) {
+    return 100;
+  } else {
+    return 2 * (dbm + 100);
+  }
 }
 
 void displayTime(bool dotsVisible) {
