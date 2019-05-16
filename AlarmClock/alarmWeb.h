@@ -23,8 +23,8 @@ const char webpage[] PROGMEM = R"=====(
     <div class="form-row pt-3">
         <div class="col-auto">
             <h1>Set your alarm</h1>
-            <div class="form-group">
-                <label for="exampleInputEmail1">Alarm:</label>
+            <div class="form-group pt-2">
+                <label for="exampleInputEmail1" class="sr-only">Alarm:</label>
                 <div class="input-group mb-3 input-group-lg">
                 <div class="input-group-prepend">
                     <span class="input-group-text"><i class="fas fa-bell"></i></span>
@@ -35,14 +35,19 @@ const char webpage[] PROGMEM = R"=====(
                     </div>
                 </div>
             </div>
-              <div class="form-inline">
-                <div class="form-group">
-                    <label for="currentAlarm">Current Alarm:</label>
-                    <input type="text" readonly id="currentAlarm" class="form-control-plaintext" value="--:--" >
-                </div>
-            </div>
         </div>
     </div>
+    <div class="form-row">
+            <div class="col-auto">
+            <h5 for="currentAlarm" class="h5">Current Alarm:</h5>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="col">
+            <p id="currentAlarm" class="clearfix mr-3 h5 w-auto d-inline float-left">--:--</p>
+            <p id="deleteAlarm" class="w-auto invisible m-0"><a href="#" class="text-danger font-weight-bold text-decoration-none" onclick='deleteAlarm()'><i class="fas fa-times"></i> Delete</a></p>
+            </div>
+        </div>
     <div class="form-row">
         <div class="col-auto">
             <hr>
@@ -81,23 +86,43 @@ const char webpage[] PROGMEM = R"=====(
       sendData(2);
       getWiFi();
       getData();
+      getAlarm();
     });
     function saveAlarm()
     {
       var alarmTime = $( "#time" ).val();
       if(alarmTime) {
-        makeAjaxCall("setAlarm?alarm=" + alarmTime);
+        var xhttp = new XMLHttpRequest();
+        xhttp.onreadystatechange = function() {
+          if (this.readyState == 4 && this.status == 200) {
+            document.getElementById("currentAlarm").innerHTML =
+            this.responseText;
+            $("#deleteAlarm").show();
+          }
+        };
+        xhttp.open("GET", "setAlarm?alarm=" + alarmTime, true);
+        xhttp.send();
       }
     }
 
-    window.setInterval(getAlarm, 2000);
+//    window.setInterval(getAlarm, 2000);
 
     function displayAlarm(data){
-    var text = "Alarm currently set to: " + data;
-     $("#currentAlarm").val(data);
+      $("#currentAlarm").html(data);
+      $("#deleteAlarm").removeClass('invisible');
+      if(data!="--:--"){
+        $("#deleteAlarm").show();
+      }
+      else{
+        $("#deleteAlarm").hide();
+      }
     }
     function getAlarm(){
       $.ajax({"url": "getAlarm",
+      "success": displayAlarm});
+    }
+    function deleteAlarm(){
+      $.ajax({"url": "deleteAlarm",
       "success": displayAlarm});
     }
   
