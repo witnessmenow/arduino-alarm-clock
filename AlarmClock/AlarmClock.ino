@@ -170,7 +170,12 @@ bool buttonPressed = false;
 
 void handleGetAlarm() {
   char alarmString[5];
-  sprintf(alarmString, "%02d:%02d", alarmHour, alarmMinute);
+  if(alarmActive==true){
+    sprintf(alarmString, "%02d:%02d", alarmHour, alarmMinute);
+  }
+  else{
+    sprintf(alarmString, "--:--");
+  }
   server.send(200, "text/plain", alarmString);
 }
 
@@ -236,6 +241,7 @@ void setup() {
   server.on("/", handleRoot);
   server.on("/setAlarm", handleSetAlarm);
   server.on("/getAlarm", handleGetAlarm);
+  server.on("/deleteAlarm", handleDeleteAlarm);
   server.on("/setLED", handleLED);
   server.on("/getWiFi", handleWiFi);
   server.on("/readADC", handleADC);
@@ -322,7 +328,22 @@ void handleSetAlarm() {
       Serial.println(alarmMinute);
     }
   }
-  server.send(200, "text/html", "Set Alarm");
+  char alarmString[5];
+  sprintf(alarmString, "%02d:%02d", alarmHour, alarmMinute);
+  server.send(200, "text/html",alarmString );
+}
+
+void handleDeleteAlarm() {
+
+  Serial.println("Deleting Alarm");
+
+  alarmHour = '--';
+  alarmMinute = '--';
+  alarmActive = false;
+  saveConfig();
+  Serial.print("Alarm deleted");
+  
+  server.send(200, "text/html", "--:--");
 }
 
 // notes in the melody:
