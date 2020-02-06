@@ -17,7 +17,7 @@
  *******************************************************************/
 
 //Included with ESP8266 Arduino Core
-
+#include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
@@ -64,7 +64,7 @@ bool firstTime = true;
 
 // Or to set a specific timezone, use this list:
 // https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
-#define MYTIMEZONE "Europe/Dublin"
+#define MYTIMEZONE "Europe/London"
 
 // -----------------------------
 
@@ -436,7 +436,7 @@ bool checkForAlarm()
   }
 }
 
-void interuptButton()
+ICACHE_RAM_ATTR void interuptButton()
 {
   // Serial.println("interuptButton");
   buttonPressed = true;
