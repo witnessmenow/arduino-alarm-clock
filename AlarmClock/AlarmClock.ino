@@ -169,7 +169,7 @@ bool alarmHandled = false;
 bool buttonPressed = false;
 
 void handleGetAlarm() {
-  char alarmString[5];
+  char alarmString[6];
   if(alarmActive==true){
     sprintf(alarmString, "%02d:%02d", alarmHour, alarmMinute);
   }
@@ -279,11 +279,15 @@ bool loadConfig() {
   std::unique_ptr<char[]> buf(new char[size]);
 
   configFile.readBytes(buf.get(), size);
-
+#if ARDUINOJSON_VERSION_MAJOR < 6
   StaticJsonBuffer<200> jsonBuffer;
   JsonObject& json = jsonBuffer.parseObject(buf.get());
-
   if (!json.success()) {
+#else
+  StaticJsonDocument<200> json;
+  auto error = deserializeJson(json, buf.get());
+  if (error) {
+#endif
     Serial.println("Failed to parse config file");
     return false;
   }
@@ -295,8 +299,12 @@ bool loadConfig() {
 }
 
 bool saveConfig() {
+#if ARDUINOJSON_VERSION_MAJOR < 6
   StaticJsonBuffer<200> jsonBuffer;
   JsonObject& json = jsonBuffer.createObject();
+#else
+  StaticJsonDocument<200> json;
+#endif
   json["alarmHour"] = alarmHour;
   json["alarmMinute"] = alarmMinute;
   json["alarmActive"] = alarmActive;
@@ -306,8 +314,11 @@ bool saveConfig() {
     Serial.println("Failed to open config file for writing");
     return false;
   }
-
+#if ARDUINOJSON_VERSION_MAJOR < 6
   json.printTo(configFile);
+#else
+  serializeJson(json, configFile);
+#endif  
   return true;
 }
 
@@ -328,7 +339,7 @@ void handleSetAlarm() {
       Serial.println(alarmMinute);
     }
   }
-  char alarmString[5];
+  char alarmString[6];
   sprintf(alarmString, "%02d:%02d", alarmHour, alarmMinute);
   server.send(200, "text/html",alarmString );
 }
@@ -337,8 +348,8 @@ void handleDeleteAlarm() {
 
   Serial.println("Deleting Alarm");
 
-  alarmHour = '--';
-  alarmMinute = '--';
+  alarmHour = 0;
+  alarmMinute = 0;
   alarmActive = false;
   saveConfig();
   Serial.print("Alarm deleted");
@@ -424,7 +435,7 @@ int timeMinutes;
 
 int lastEffectiveAlarm = 0;
 
-bool checkForAlarm()
+void checkForAlarm()
 {
   if (alarmActive && timeHour == alarmHour && timeMinutes == alarmMinute) {
     if (!alarmHandled)
